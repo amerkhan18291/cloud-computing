@@ -1,0 +1,117 @@
+#################################################################
+	Configuring hive remote metastore on CDH
+#################################################################
+
+
+## Note : Cloudera recommends you configure a database for the metastore on one or more remote servers (that is, on a host or hosts separate from
+the HiveServer1 or HiveServer2 process). MySQL is the most popular database to use. 
+
+We will configure mysql db on a host different from HMS and HS2 service
+
+
+-----**** Install mysql ****-----
+
+sudo apt-get install mysql-server -y
+
+
+-----**** Install mysql connector ****-----
+
+## Do this on HS2 and HMS hosts
+
+sudo apt‐get install libmysql‐java 
+
+sudo cp /usr/share/java/mysql-connector-java-5.1.28.jar /opt/cloudera/parcels/CDH-5.14.0-1.cdh5.14.0.p0.24/lib/hive/lib/
+
+
+-----**** Secure mysql ****-----
+
+
+$ sudo /usr/bin/mysql_secure_installation 
+[...] 
+Enter current password for root (enter for none): 
+OK, successfully used password, moving on... 
+[...] 
+Set root password? [Y/n] y 
+New password: 
+Re‐enter new password: 
+Remove anonymous users? [Y/n] Y 
+[...] 
+Disallow root login remotely? [Y/n] N 
+[...] 
+Remove test database and access to it [Y/n] Y 
+[...] 
+Reload privilege tables now? [Y/n] Y 
+All done!
+
+
+
+-----**** Create database and user ****-----
+
+
+$ mysql ‐u root ‐p 
+Enter password: 
+mysql> CREATE DATABASE metastore; 
+mysql> USE metastore; 
+mysql> SOURCE /opt/cloudera/parcels/CDH-5.14.0-1.cdh5.14.0.p0.24/lib/hive/scripts/metastore/upgrade/mysql/hive-schema-1.1.0.mysql.sql;
+
+
+mysql> CREATE USER 'hive'@'metastorehost' IDENTIFIED BY 'mypassword'; 
+
+(Note : in the place of metastorehost use <pri-dns> of host on which HMS is running )
+
+mysql> REVOKE ALL PRIVILEGES, GRANT OPTION FROM 'hive'@'metastorehost'; 
+mysql> GRANT ALL PRIVILEGES ON metastore.* TO 'hive'@'metastorehost'; 
+mysql> FLUSH PRIVILEGES; 
+mysql> quit;
+
+
+-----**** Configure metastore service to communicate with the MySQL db ****-----
+
+## Do following on HMS host
+ 
+sudo nano /opt/cloudera/parcels/CDH-5.14.0-1.cdh5.14.0.p0.24/etc/hive/conf.dist/hive-site.xml
+
+<property>
+  <name>javax.jdo.option.ConnectionURL</name>
+  <value>jdbc:mysql://ip-172-31-23-42.ec2.internal/metastore</value>
+  <description>the URL of the MySQL database</description>
+</property> 
+<property>
+  <name>javax.jdo.option.ConnectionDriverName</name>
+  <value>com.mysql.jdbc.Driver</value>
+</property>
+<property>
+  <name>javax.jdo.option.ConnectionUserName</name>
+  <value>hive</value>
+</property>
+<property>
+  <name>javax.jdo.option.ConnectionPassword</name>
+  <value>mypassword</value>
+</property> 
+<property>
+  <name>datanucleus.autoCreateSchema</name>
+  <value>false</value>
+</property>
+<property>
+  <name>datanucleus.fixedDatastore</name>
+  <value>true</value>
+</property>
+<property>
+  <name>datanucleus.autoStartMechanism</name>
+  <value>SchemaTable</value>
+</property>
+<property>
+  <name>hive.metastore.uris</name>
+  <value>thrift://ip-172-31-17-83.ec2.internal:9083</value>
+  <description>IP address (or fully‐qualified domain name) and port of the metastore host</description>
+</property>
+<property>
+<name>hive.metastore.schema.verification</name>
+<value>true</value>
+</property>
+
+
+## Note : hive.metastore.uris is the only property that must be configured on all
+hosts (client, metastore, HiveServer). Rest other properties are required only on metastore host
+
+

@@ -1,0 +1,399 @@
+		***********************************************
+				HADOOP ECOSYSTEM
+		***********************************************
+
+
+
+
+************************************************************
+	Apache Hive Installation (MySQL Metastore)
+************************************************************
+
+
+
+-----**** Download Hive ****-----
+
+wget -c http://www-us.apache.org/dist/hive/stable-2/apache-hive-2.3.3-bin.tar.gz
+
+tar -xzvf apache-hive-2.3.3-bin.tar.gz
+
+sudo mv apache-hive-2.3.3-bin /usr/lib/hive
+
+
+-----**** Configure .bashrc ****-----
+
+nano .bashrc
+export HIVE_HOME=/usr/lib/hive
+export PATH=$PATH:$HIVE_HOME/bin
+export CLASSPATH=$CLASSPATH:/usr/lib/hive/lib/*:.
+
+source .bashrc
+
+
+-----**** Configure Hive ****-----
+
+cd $HIVE_HOME/conf
+
+cp hive-env.sh.template hive-env.sh
+
+nano hive-env.sh
+export HADOOP_HOME=/usr/local/hadoop
+
+
+-----**** Create warehouse directory ****-----
+
+hdfs dfs -mkdir /user/hive/warehouse
+
+hdfs dfs -chmod g+w /tmp
+hdfs dfs -chmod g+w /user/hive/warehouse
+
+
+-----**** Configuring MySQL Database for the Hive Metastore ****-----
+
+sudo apt-get install mysql-server
+
+sudo service mysql start
+
+## Configure the MySQL service and connector
+
+$ sudo apt-get install libmysql-java
+$ ln -s /usr/share/java/libmysql-java.jar /usr/lib/hive/lib/libmysql-java.jar
+
+
+## To set the MySQL root password:
+
+$ sudo /usr/bin/mysql_secure_installation
+[...]
+Enter current password for root (enter for none):
+OK, successfully used password, moving on...
+[...]
+Set root password? [Y/n] y
+New password:
+Re-enter new password:
+Remove anonymous users? [Y/n] Y
+[...]
+Disallow root login remotely? [Y/n] N
+[...]
+Remove test database and access to it [Y/n] Y
+[...]
+Reload privilege tables now? [Y/n] Y
+All done!
+
+
+## Create MySQL user account for Hive to use to access the metastore
+
+$ mysql -u root -p
+
+mysql> CREATE USER 'hive'@'localhost' IDENTIFIED BY 'mypassword';
+...
+mysql> REVOKE ALL PRIVILEGES, GRANT OPTION FROM 'hive'@'localhost';
+mysql> GRANT ALL PRIVILEGES ON metastore.* TO 'hive'@'localhost';
+mysql> FLUSH PRIVILEGES;
+mysql> quit;
+
+
+-----**** Configure hive-site.xml ****-----
+
+cd /usr/lib/hive/conf
+
+nano hive-site.xml
+
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<?xml-stylesheet type="text/xsl" href="configuration.xsl"?><!--
+Licensed to the Apache Software Foundation (ASF) under one or more
+contributor license agreements. See the NOTICE file distributed with
+this work for additional information regarding copyright ownership.
+The ASF licenses this file to You under the Apache License, Version 2.0
+(the "License"); you may not use this file except in compliance with
+the License. You may obtain a copy of the License at
+
+http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+<configuration>
+<property>
+<name>javax.jdo.option.ConnectionURL</name>
+<value>jdbc:mysql://localhost/metastore?createDatabaseIfNotExist=true</value>
+<description>
+JDBC connect string for a JDBC metastore.
+</description>
+</property>
+<property>
+  <name>javax.jdo.option.ConnectionDriverName</name>
+  <value>com.mysql.jdbc.Driver</value>
+</property>
+<property>
+<name>hive.metastore.warehouse.dir</name>
+<value>/user/hive/warehouse</value>
+<description>location of default database for the warehouse</description>
+</property>
+<property>
+  <name>javax.jdo.option.ConnectionUserName</name>
+  <value>hive</value>
+</property>
+<property>
+  <name>javax.jdo.option.ConnectionPassword</name>
+  <value>mypassword</value>
+</property>
+<property>
+  <name>datanucleus.autoCreateSchema</name>
+  <value>false</value>
+</property>
+<property>
+  <name>datanucleus.fixedDatastore</name>
+  <value>true</value>
+</property>
+<property>
+  <name>datanucleus.autoStartMechanism</name>
+  <value>SchemaTable</value>
+</property>
+</configuration>
+
+
+-----**** Installing the Mysql Driver and Configuring the CLASSPATH ****-----
+
+$ wget https://dev.mysql.com/get/Downloads/Connector-J/mysql-connector-java-5.1.40.tar.gz
+
+$ tar -xzvf mysql-connector-java-5.1.40.tar.gz
+
+$ export CLASSPATH=/home/ubuntu/mysql-connector-java-5.1.40/mysql-connector-java-5.1.40-bin.jar:$CLASSPATH
+
+$ cd mysql-connector-java-5.1.40.tar.gz
+
+$ cp mysql-connector-java-5.1.40-bin.jar /usr/lib/hive/lib/
+
+
+-----**** Create initial database schema ****-----
+
+$ cd /usr/lib/hive/bin/
+
+$ schematool -dbType mysql -initSchema -userName hive -Password mypassword
+
+schematool completed
+
+
+-----**** Disabling useSSL ****-----
+
+cd /usr/lib/hive/conf
+
+nano hive-site.xml
+
+<property>
+<name>javax.jdo.option.ConnectionURL</name>
+<value>jdbc:mysql://localhost/metastore?useSSL=false</value>
+<description>
+JDBC connect string for a JDBC metastore.
+</description>
+</property>
+
+
+-----**** Start hive ****-----
+
+$ hive 
+
+hive>
+
+hive> create database mydb;
+
+hive> show databases;
+
+hive> use mydb;
+
+## Wordcount example
+
+$ hdfs dfs -put poems .
+
+hive> create table doc(text string) row format delimited fields terminated by '\n' stored as textfile;
+
+hive> load data inpath '/user/ubuntu/poems' overwrite into table doc;
+
+hive> SELECT word, COUNT(*) FROM doc LATERAL VIEW explode(split(text, ' ')) ITable as word GROUP BY word;  
+
+
+
+************************************
+	Sqoop Installation
+************************************
+
+
+-----**** Download and install sqoop ****-----
+
+wget -c http://www-us.apache.org/dist/sqoop/1.4.7/sqoop-1.4.7.bin__hadoop-2.6.0.tar.gz
+
+tar -xzf sqoop-1.4.7.bin__hadoop-2.6.0.tar.gz
+
+sudo mv sqoop-1.4.7.bin__hadoop-2.6.0 /usr/lib/sqoop
+
+sudo chown -R ubuntu:ubuntu /usr/lib/sqoop 
+
+
+-----**** Configure .bashrc ****-----
+
+nano .bashrc
+
+export SQOOP_HOME=/usr/lib/sqoop 
+export PATH=$PATH:$SQOOP_HOME/bin
+
+source ~/.bashrc
+
+
+-----**** Configure sqoop ****-----
+
+cd $SQOOP_HOME/conf
+
+cp sqoop-env-template.sh sqoop-env.sh
+
+nano sqoop-env.sh
+
+export HADOOP_COMMON_HOME=/usr/local/hadoop 
+export HADOOP_MAPRED_HOME=/usr/local/hadoop
+
+
+-----**** Download and Configure mysql-connector-java ****-----
+
+On browser : http://ftp.ntu.edu.tw/MySQL/Downloads/Connector-J/
+(Download appropriate connetctor[.tar.gz])
+
+$  cp mysql-connector-java-5.1.40-bin.jar /usr/lib/sqoop/lib/
+
+
+-----**** Verifying Sqoop ****-----
+
+sqoop-version
+
+
+
+
+-----**** Import ****-----
+
+mysql -u root -p
+
+mysql> create database testDb;
+mysql> use testDb;
+mysql> create table student(id integer,name char(20));
+mysql> insert into student values(1,'jim');
+mysql> insert into student values(2,'john');
+mysql> insert into student values(3,'rick');
+mysql> exit;
+
+$ sqoop import --connect jdbc:mysql://localhost/testDb --username root --password root --table student -m 1
+
+$ sqoop import --connect jdbc:mysql://localhost/testDb --username root --password root --table student -m 1 --target-dir /user/ubuntu/sqoop-import1
+
+
+
+-----**** Export ****-----
+
+## NOTE : It is mandatory that the table to be exported is created manually and is present in the database from where it has to be exported.
+
+
+mysql -u root -p
+
+mysql> create database export;
+mysql> use export;
+mysql> create table export1 (id integer, name char(20));
+mysql> quit;
+
+
+$ sqoop export --connect jdbc:mysql://localhost/export --username root --password root --table export1 --direct --export-dir /user/ubuntu/student
+
+
+$ mysql -u root -p
+ 
+mysql> use export;
+mysql> select * from export1;
+mysql> quit;
+
+
+
+********************************
+	Apache Flume
+********************************
+
+
+-----**** Download and install flume ****-----
+
+wget -c http://www-us.apache.org/dist/flume/1.7.0/apache-flume-1.7.0-bin.tar.gz
+
+tar -xzvf apache-flume-1.7.0-bin.tar.gz 
+
+sudo mv apache-flume-1.7.0-bin /usr/lib/flume
+
+sudo chown -R ubuntu:ubuntu /usr/lib/flume
+
+
+-----**** Configure .bashrc ****-----
+
+nano .bashrc
+
+export FLUME_HOME=/usr/lib/flume
+export PATH=$PATH:$FLUME_HOME/bin
+export CLASSPATH=$CLASSPATH:/usr/lib/flume/lib/*
+
+
+-----**** Configure flume ****-----
+
+
+cp flume-env.sh.template flume-env.sh
+
+nano flume-env.sh
+export JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64
+
+
+-----**** Verify flume ****-----
+
+$ flume-ng
+
+
+-----**** Flume example ****-----
+
+
+## Configure flume agent
+
+nano flume-seq.conf
+
+# Naming the components on the current agent 
+
+SeqGenAgent.sources = SeqSource   
+SeqGenAgent.channels = MemChannel 
+SeqGenAgent.sinks = HDFS 
+ 
+# Describing/Configuring the source 
+SeqGenAgent.sources.SeqSource.type = seq
+  
+# Describing/Configuring the sink
+SeqGenAgent.sinks.HDFS.type = hdfs 
+SeqGenAgent.sinks.HDFS.hdfs.path = hdfs://localhost:9000/user/ubuntu/seqgen_data/
+SeqGenAgent.sinks.HDFS.hdfs.filePrefix = log 
+SeqGenAgent.sinks.HDFS.hdfs.rollInterval = 0
+SeqGenAgent.sinks.HDFS.hdfs.rollCount = 10000
+SeqGenAgent.sinks.HDFS.hdfs.fileType = DataStream 
+ 
+# Describing/Configuring the channel 
+SeqGenAgent.channels.MemChannel.type = memory 
+SeqGenAgent.channels.MemChannel.capacity = 1000 
+SeqGenAgent.channels.MemChannel.transactionCapacity = 100 
+ 
+# Binding the source and sink to the channel 
+SeqGenAgent.sources.SeqSource.channels = MemChannel
+SeqGenAgent.sinks.HDFS.channel = MemChannel 
+
+
+-----**** Execute flume agent ****-----
+
+flume-ng agent --conf $FLUME_HOME/conf --conf-file ~/flume-seq.conf --name SeqGenAgent
+
+
+## Verify 
+
+Go to browser
+<pub-ip-nn>:50070
+->utilities->browsefilesystem
+
+
+$ hdfs dfs -ls -R seqgen_data
