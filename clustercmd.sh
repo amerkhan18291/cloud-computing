@@ -1,4 +1,4 @@
 for i in `cat cluster`; do
-ssh -t -i oregon.pem ubuntu@$i $* 
+ssh -t -i ./security.pem ec2-user@$i $* 
 done
 
